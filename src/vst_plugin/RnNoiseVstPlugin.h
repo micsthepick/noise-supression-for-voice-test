@@ -19,10 +19,14 @@ public:
 
     void processReplacing(float **inputs, float **outputs, VstInt32 sampleFrames) override;
 
-    void getProgramName(char *name) override;
+    bool getEffectName(char *name) override;
+
+    bool getProductString(char *name) override;
 
 private:
-    static const char* s_programName;
+    static const char* s_effectName;
+
+    static const char* s_productString;
 
     std::unique_ptr<RnNoiseCommonPlugin> m_rnNoisePlugin;
 };
