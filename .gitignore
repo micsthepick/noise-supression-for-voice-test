@@ -10,6 +10,14 @@ MakeFile
 *.cbp
 
 bin/
+Debug/
+Release/
+.vs/
+*.vcxproj
+*.vcxproj.*
+*.sln
+*_artefacts/
+*.tcl
 
 #VST sdk files are ignored due to license
 src/vst_plugin/vst2.x/*.h
