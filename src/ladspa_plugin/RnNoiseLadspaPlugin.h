@@ -32,23 +32,29 @@ struct RnNoiseMono {
                     nullptr // implementation data
             };
 
-    RnNoiseMono() {
-        m_rnNoisePlugin.init();
+    explicit RnNoiseMono(sample_rate_t _sample_rate) {
+        m_rnNoisePlugin = std::make_unique<RnNoiseCommonPlugin>(1);
+        m_rnNoisePlugin->init();
     }
 
     ~RnNoiseMono() {
-        m_rnNoisePlugin.deinit();
+        m_rnNoisePlugin->deinit();
     }
 
-    void run(port_array_t<port_names, port_info> &ports) {
+    void run(port_array_t<port_names, port_info> &ports) const {
+        static const uint32_t ms_in_block = 10;
 
-		const_buffer in_buffer = ports.get<port_names::in_1>();
-		buffer out_buffer = ports.get<port_names::out_1>();
+        const_buffer in_buffer = ports.get<port_names::in_1>();
+        buffer out_buffer = ports.get<port_names::out_1>();
 
-        m_rnNoisePlugin.process(in_buffer.data(), out_buffer.data(), in_buffer.size());
+
+        const float *input[] = {in_buffer.data()};
+        float *output[] = {out_buffer.data()};
+
+        m_rnNoisePlugin->process(input, output, in_buffer.size());
     }
 
-    RnNoiseCommonPlugin m_rnNoisePlugin;
+    std::unique_ptr<RnNoiseCommonPlugin> m_rnNoisePlugin;
 };
 
 struct RnNoiseStereo {
@@ -82,29 +88,31 @@ struct RnNoiseStereo {
                     nullptr // implementation data
             };
 
-    RnNoiseStereo() {
-        m_rnNoisePluginL.init();
-        m_rnNoisePluginR.init();
+    explicit RnNoiseStereo(sample_rate_t _sample_rate) {
+        m_rnNoisePlugin = std::make_unique<RnNoiseCommonPlugin>(2);
+        m_rnNoisePlugin->init();
     }
 
     ~RnNoiseStereo() {
-        m_rnNoisePluginL.deinit();
-        m_rnNoisePluginR.deinit();
+        m_rnNoisePlugin->deinit();
     }
 
-    void run(port_array_t<port_names, port_info> &ports) {
+    void run(port_array_t<port_names, port_info> &ports) const {
+        static const uint32_t ms_in_block = 10;
+
         const_buffer in_buffer_l = ports.get<port_names::in_1>();
         const_buffer in_buffer_r = ports.get<port_names::in_r>();
 
         buffer out_buffer_l = ports.get<port_names::out_1>();
         buffer out_buffer_r = ports.get<port_names::out_r>();
 
-        m_rnNoisePluginL.process(in_buffer_l.data(), out_buffer_l.data(), in_buffer_l.size());
-        m_rnNoisePluginR.process(in_buffer_r.data(), out_buffer_r.data(), in_buffer_r.size());
+        const float *input[] = {in_buffer_l.data(), in_buffer_r.data()};
+        float *output[] = {out_buffer_l.data(), out_buffer_r.data()};
+
+        m_rnNoisePlugin->process(input, output, in_buffer_l.size());
     }
 
-    RnNoiseCommonPlugin m_rnNoisePluginL;
-    RnNoiseCommonPlugin m_rnNoisePluginR;
+    std::unique_ptr<RnNoiseCommonPlugin> m_rnNoisePlugin;
 };
 
 /*

@@ -100,7 +100,7 @@ void RnNoiseAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     }
 
     // TODO: REVERTED TO MONO PROCESSING!!! - fix this!
-    m_rnNoisePlugin->process(in[0], out[0], static_cast<size_t>(buffer.getNumSamples()));
+    m_rnNoisePlugin->process(in, out, static_cast<size_t>(buffer.getNumSamples()));
 }
 
 //==============================================================================
