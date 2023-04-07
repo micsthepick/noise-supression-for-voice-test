@@ -8,29 +8,7 @@ RnNoiseAudioProcessor::RnNoiseAudioProcessor()
         : AudioProcessor(BusesProperties()
                                  .withInput("Input", juce::AudioChannelSet::namedChannelSet(NUM_CHANNELS), true)
                                  .withOutput("Output", juce::AudioChannelSet::namedChannelSet(NUM_CHANNELS), true)
-), m_parameters(*this, nullptr, juce::Identifier("RNNoise"),
-                {
-                        std::make_unique<juce::AudioParameterFloat>("vad_threshold",
-                                                                    "VAD Threshold",
-                                                                    0.0f,
-                                                                    1.0f,
-                                                                    0.6f),
-                        std::make_unique<juce::AudioParameterInt>("vad_grace_period",
-                                                                  "VAD Grace Period (10ms per unit)",
-                                                                  0,
-                                                                  500,
-                                                                  20),
-                        std::make_unique<juce::AudioParameterInt>("vad_retroactive_grace_period",
-                                                                  "Retroactive VAD Grace Period (10ms per unit)",
-                                                                  0,
-                                                                  10,
-                                                                  0)
-                }) {
-    m_vadThresholdParam = (juce::AudioParameterFloat *) m_parameters.getParameter("vad_threshold");
-    m_vadGracePeriodParam = (juce::AudioParameterInt *) m_parameters.getParameter("vad_grace_period");
-    m_vadRetroactiveGracePeriodParam = (juce::AudioParameterInt *) m_parameters.getParameter(
-            "vad_retroactive_grace_period");
-}
+) {}
 
 RnNoiseAudioProcessor::~RnNoiseAudioProcessor() = default;
 
@@ -122,9 +100,8 @@ void RnNoiseAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         out[channel] = buffer.getWritePointer(channel);
     }
 
-    m_rnNoisePlugin->process(in, out, static_cast<size_t>(buffer.getNumSamples()), m_vadThresholdParam->get(),
-                             static_cast<uint32_t>(m_vadGracePeriodParam->get()),
-                             static_cast<uint32_t>(m_vadRetroactiveGracePeriodParam->get()));
+    // TODO: REVERTED TO MONO PROCESSING!!! - fix this!
+    m_rnNoisePlugin->process(in, out, static_cast<size_t>(buffer.getNumSamples()));
 }
 
 //==============================================================================
@@ -133,27 +110,18 @@ bool RnNoiseAudioProcessor::hasEditor() const {
 }
 
 juce::AudioProcessorEditor *RnNoiseAudioProcessor::createEditor() {
-    return new RnNoiseAudioProcessorEditor(*this, m_parameters);
-}
-
-//==============================================================================
-void RnNoiseAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
-    auto state = m_parameters.copyState();
-    std::unique_ptr<juce::XmlElement> xml(state.createXml());
-    copyXmlToBinary(*xml, destData);
-}
-
-void RnNoiseAudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
-    std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
-
-    if (!xml || !xml->hasTagName(m_parameters.state.getType()))
-        return;
-
-    m_parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    return new RnNoiseAudioProcessorEditor(*this);
 }
 
 //==============================================================================
 // This creates new instances of the plugin..
 juce::AudioProcessor *JUCE_CALLTYPE createPluginFilter() {
     return new RnNoiseAudioProcessor();
+}
+
+//==============================================================================
+void RnNoiseAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
+}
+
+void RnNoiseAudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
 }

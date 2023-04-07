@@ -3,24 +3,7 @@
 #include <memory>
 #include <vector>
 
-#include <cstring>
-#include <cassert>
-#include <atomic>
-
 struct DenoiseState;
-
-struct RnNoiseStats {
-    /* (Accumulative) How many blocks are unmuted due to grace period */
-    uint32_t vadGraceBlocks;
-    /* (Accumulative) How many blocks are unmuted due to retroactive grace period */
-    uint32_t retroactiveVADGraceBlocks;
-
-    /* How many blocks are in an output queue in a single channel. Represents current latency. */
-    uint32_t blocksWaitingForOutput;
-
-    /* How many output frames we are forced to zero out because there is not enough frames to write. */
-    uint64_t outputFramesForcedToBeZeroed;
-};
 
 class RnNoiseCommonPlugin {
 public:
@@ -37,17 +20,8 @@ public:
      * @param in
      * @param out
      * @param sampleFrames The amount of frames to process.
-     * @param vadThreshold Voice activation threshold.
-     * @param vadGracePeriodBlocks For how many blocks output will not be silenced after a voice
-     * was detected last time.
-     * @param retroactiveVADGraceBlocks If voice is detected in current block, how many blocks
-     * in the past will not be silenced. Introduces the delay of retroactiveVADGraceBlocks blocks.
      */
-    void process(const float *const *in, float **out, size_t sampleFrames, float vadThreshold,
-                 uint32_t vadGracePeriodBlocks, uint32_t retroactiveVADGraceBlocks);
-
-    void resetStats();
-    const RnNoiseStats getStats() const;
+    void process(const float *const *in, float **out, size_t sampleFrames);
 
 private:
 
@@ -93,8 +67,6 @@ private:
         std::vector<std::unique_ptr<OutputChunk>> outputBlocksCache;
     };
     std::vector<ChannelData> m_channels;
-
-    std::atomic<RnNoiseStats> m_stats;
 };
 
 

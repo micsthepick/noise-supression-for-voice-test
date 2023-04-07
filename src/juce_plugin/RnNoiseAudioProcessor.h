@@ -45,13 +45,6 @@ public:
     void setStateInformation(const void *data, int sizeInBytes) override;
 
 public:
-
-    juce::AudioProcessorValueTreeState m_parameters;
-
-    juce::AudioParameterFloat* m_vadThresholdParam;
-    juce::AudioParameterInt* m_vadGracePeriodParam;
-    juce::AudioParameterInt* m_vadRetroactiveGracePeriodParam;
-
     std::shared_ptr<RnNoiseCommonPlugin> m_rnNoisePlugin;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RnNoiseAudioProcessor)

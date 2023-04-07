@@ -7,37 +7,18 @@
 
 #include <rnnoise/rnnoise.h>
 
-static const uint32_t k_minVADGracePeriodBlocks = 20;
-static const uint32_t k_maxRetroactiveVADGraceBlocks = 99;
-
 void RnNoiseCommonPlugin::init() {
     deinit();
     createDenoiseState();
-    resetStats();
 }
 
 void RnNoiseCommonPlugin::deinit() {
     m_channels.clear();
 }
 
-void
-RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleFrames, float vadThreshold,
-                             uint32_t vadGracePeriodBlocks, uint32_t retroactiveVADGraceBlocks) {
-    /* TODO: Option to output noise when channel is muted;
-     * TODO: Remove blocks in output queue when retroactiveVADGraceBlocks is reduced;
-     */
-
-    assert(vadThreshold >= 0.f && vadThreshold <= 1.f);
-
+void RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleFrames) {
     if (sampleFrames == 0) {
         return;
-    }
-
-    if (m_prevRetroactiveVADGraceBlocks > retroactiveVADGraceBlocks) {
-        /* TODO: do not be lazy and adjust output queue directly.
-         * For now, just re-init the plugin to prevent excess latency.
-         */
-        init();
     }
 
     /* For offline processing hosts could pass a lot of frames at once, there is also no
@@ -49,13 +30,6 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
      * TODO: Is there a better way to handle offline processing with big inputs?
      */
     bool waitForEnoughFrames = sampleFrames < (k_denoiseBlockSize * 50);
-
-    m_prevRetroactiveVADGraceBlocks = retroactiveVADGraceBlocks;
-
-    RnNoiseStats stats = m_stats.load();
-
-    vadGracePeriodBlocks = std::max(vadGracePeriodBlocks, k_minVADGracePeriodBlocks);
-    retroactiveVADGraceBlocks = std::min(retroactiveVADGraceBlocks, k_maxRetroactiveVADGraceBlocks);
 
     /* Copy input data (since we are not allowed to change it inplace) */
     for (auto &channel: m_channels) {
@@ -104,67 +78,6 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
 
     m_newOutputIdx += blocksFromRnnoise;
 
-    /* We either mute ALL channels or none, so we have to calculate the max VAD
-     * probability across each output block.
-     */
-    for (uint32_t blockIdx = 0; blockIdx < blocksFromRnnoise; blockIdx++) {
-        float maxVadProbability = 0.f;
-        auto getCurOut = [blockIdx, blocksFromRnnoise](ChannelData &channel) {
-            return channel.rnnoiseOutput.rbegin()[blocksFromRnnoise - blockIdx - 1].get();
-        };
-
-        for (auto &channel: m_channels) {
-            maxVadProbability = std::max(getCurOut(channel)->vadProbability, maxVadProbability);
-        }
-
-        for (auto &channel: m_channels) {
-            getCurOut(channel)->maxVadProbability = maxVadProbability;
-        }
-
-        if (maxVadProbability >= vadThreshold) {
-            m_lastOutputIdxOverVADThreshold = getCurOut(m_channels[0])->idx;
-        } else {
-            /* Calculate grace period */
-            for (auto &channel: m_channels) {
-                auto curOut = getCurOut(channel);
-                bool inVadPeriod = (curOut->idx - m_lastOutputIdxOverVADThreshold) <= vadGracePeriodBlocks;
-                if (inVadPeriod) {
-                    assert(curOut->muteState == ChunkUnmuteState::UNMUTED_BY_DEFAULT);
-                    curOut->muteState = ChunkUnmuteState::UNMUTED_VAD;
-                    if (channel.idx == 0) {
-                        stats.vadGraceBlocks++;
-                    }
-                } else {
-                    curOut->muteState = ChunkUnmuteState::MUTED;
-                }
-            }
-        }
-    }
-
-    if (retroactiveVADGraceBlocks > 0) {
-        for (auto &channel: m_channels) {
-            uint64_t lastBlockIdxOverVADThreshold = 0;
-            for (uint32_t blockIdx = 0; blockIdx < (blocksFromRnnoise + retroactiveVADGraceBlocks); blockIdx++) {
-                if (blockIdx >= channel.rnnoiseOutput.size()) {
-                    break;
-                }
-
-                auto &outBlock = channel.rnnoiseOutput.rbegin()[blockIdx];
-                if (outBlock->maxVadProbability >= vadThreshold) {
-                    lastBlockIdxOverVADThreshold = outBlock->idx;
-                } else if (outBlock->muteState == ChunkUnmuteState::MUTED) {
-                    bool inVadPeriod = (lastBlockIdxOverVADThreshold - outBlock->idx) <= retroactiveVADGraceBlocks;
-                    if (inVadPeriod) {
-                        outBlock->muteState = ChunkUnmuteState::UNMUTED_RETRO_VAD;
-                        if (channel.idx == 0) {
-                            stats.retroactiveVADGraceBlocks++;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     for (auto &channel: m_channels) {
         for (size_t blockIdx = channel.rnnoiseOutput.size() - blocksFromRnnoise;
              blockIdx < channel.rnnoiseOutput.size(); blockIdx++) {
@@ -184,7 +97,7 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
         size_t firstBlockFrames =
                 k_denoiseBlockSize - m_channels[0].rnnoiseOutput.rbegin()[blockIdxRelative]->curOffset;
         size_t totalFrames = blockIdxRelative * k_denoiseBlockSize + firstBlockFrames;
-        hasEnoughFrames = totalFrames >= (sampleFrames + k_denoiseBlockSize * retroactiveVADGraceBlocks);
+        hasEnoughFrames = totalFrames >= sampleFrames;
     }
 
     /* Wait until there are enough frames to fill all the output. Yes, it creates latency but
@@ -195,9 +108,6 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
             std::fill(out[channelIdx], out[channelIdx] + sampleFrames, 0.f);
         }
 
-        stats.outputFramesForcedToBeZeroed += sampleFrames;
-        stats.blocksWaitingForOutput = 0;
-        m_stats.store(stats);
         return;
     }
 
@@ -229,10 +139,6 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
 
         blockIdxRelative = std::max(blockIdxRelative, 0);
 
-        if (channel.idx == 0) {
-            stats.outputFramesForcedToBeZeroed += sampleFrames - curOutFrameIdx;
-        }
-
         for (; curOutFrameIdx < sampleFrames; curOutFrameIdx++) {
             out[channel.idx][curOutFrameIdx] = 0.f;
         }
@@ -241,7 +147,7 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
     }
 
     m_currentOutputIdxToOutput = newOutputIdxToOutput;
-    uint32_t blocksToLeave = static_cast<uint32_t>(m_newOutputIdx - m_currentOutputIdxToOutput) + retroactiveVADGraceBlocks;
+    uint32_t blocksToLeave = static_cast<uint32_t>(m_newOutputIdx - m_currentOutputIdxToOutput);
 
     /* Move output blocks we don't need to the cache to save on allocations. */
     if (blocksToLeave < m_channels[0].rnnoiseOutput.size()) {
@@ -255,16 +161,11 @@ RnNoiseCommonPlugin::process(const float *const *in, float **out, size_t sampleF
                                         channel.rnnoiseOutput.begin() + blocksToRemove);
         }
     }
-
-    stats.blocksWaitingForOutput = static_cast<uint32_t>(m_newOutputIdx - m_currentOutputIdxToOutput);
-    m_stats.store(stats);
 }
 
 void RnNoiseCommonPlugin::createDenoiseState() {
     m_newOutputIdx = 0;
-    m_lastOutputIdxOverVADThreshold = 0;
     m_currentOutputIdxToOutput = 0;
-    m_prevRetroactiveVADGraceBlocks = 0;
 
     for (uint32_t i = 0; i < m_channelCount; i++) {
         auto denoiseState = std::shared_ptr<DenoiseState>(rnnoise_create(), [](DenoiseState *st) {
@@ -273,13 +174,5 @@ void RnNoiseCommonPlugin::createDenoiseState() {
 
         m_channels.push_back(ChannelData{i, denoiseState, {}, {}, {}});
     }
-}
-
-void RnNoiseCommonPlugin::resetStats() {
-    m_stats.store(RnNoiseStats {});
-}
-
-const RnNoiseStats RnNoiseCommonPlugin::getStats() const {
-    return m_stats.load();
 }
 
